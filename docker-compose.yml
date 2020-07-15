@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  client:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      CLIENT_PORT: 9000
+      CLIENT_HOST: 0.0.0.0
+      SOCKET_HOST: 192.168.1.115
+      SOCKET_PORT: 3001
+      MAPBOX_ACCESS_TOKEN: pk.eyJ1IjoieWFwYWxleGVpIiwiYSI6ImNqNGVuaDRwdjBwZ2MycW1rM2FrMmpmNTQifQ.ouDro4DGQ4viVjdBgaI_Xg
