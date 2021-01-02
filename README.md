@@ -1,7 +1,7 @@
 # The Flock
 A multi player/user app/game that connects through a (socket.io) websocket server [the-flock-network](https://github.com/yapalexei/the-flock-network) showing fake flyers on a map.
 
-A demo can be viewed here with a mapbox Death5tar style theme: [the flock demo](http://flock.claypot.io/). Fighter craft credits go to [kavinveldar](https://www.deviantart.com/kavinveldar/gallery).
+Fighter craft credits go to [kavinveldar](https://www.deviantart.com/kavinveldar/gallery).
 
 ## Prerequisites
 - node version: 12.12.0
