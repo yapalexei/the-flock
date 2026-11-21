@@ -10,8 +10,9 @@ import jWing from './assets/jWing.png';
 import aWing from './assets/aWing.png';
 import yWing from './assets/yWing.png';
 import explosion3 from './assets/explosion3.png';
+import rechargeBox from './assets/rechargeBox.png';
 
-const allCraft = {
+const allImages = {
   tieFighter,
   xWing,
   xWing1,
@@ -20,27 +21,55 @@ const allCraft = {
   tie2,
   tie3,
   tie4,
-  // yWing,
+  yWing,
   jWing,
   aWing,
-};
-
-export const playerCraft = {
-  xWing,
-  xWing1,
-  xWing2,
-  // yWing,
-  jWing,
-  aWing,
+  rechargeBox,
 };
 
 const loadAssets = (map) => {
-  Object.entries(allCraft).map(([key, path]) => {
+  Object.entries(allImages).map(([key, path]) => {
     const img = new Image();
     img.onload = () => map.addImage(key, img);
     img.src = path;
   });
 };
+
+// Player health bar: an arc centred over the top of the craft, drawn into one image per step
+// (red = capacity, green = health left) and picked per feature by the layer.
+// The base radius is in css px at icon-size 1; features scale it with `arcRadius`.
+const HEALTH_ARC_STEPS = 40;
+const HEALTH_ARC_RADIUS = 180;
+// How much of a circle the bar covers, in degrees: 180 is a semicircle, 90 a quarter, 360 a full ring.
+const HEALTH_ARC_SPAN_DEG = 90;
+
+function initHealthArcs(map) {
+  const pixelRatio = 1;
+  const centre = HEALTH_ARC_RADIUS + 8;
+  const size = centre * 2 * pixelRatio;
+  for (let step = 0; step <= HEALTH_ARC_STEPS; step++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(pixelRatio, pixelRatio);
+    ctx.lineCap = 'round';
+    // Canvas angles run clockwise from east, so the top is 270 degrees. The bar is centred there
+    // and green fills from its left end.
+    const startAngle = (270 - HEALTH_ARC_SPAN_DEG / 2) * Math.PI / 180;
+    const arc = (fraction, color, width) => {
+      ctx.beginPath();
+      ctx.arc(centre, centre, HEALTH_ARC_RADIUS, startAngle, startAngle + fraction * HEALTH_ARC_SPAN_DEG * Math.PI / 180);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    arc(1, 'rgba(0,0,0,0.55)', 9);
+    arc(1, '#d62d2d', 5);
+    if (step > 0) arc(step / HEALTH_ARC_STEPS, '#3ddc6a', 5);
+    map.addImage(`hp-${step}`, ctx.getImageData(0, 0, size, size), { pixelRatio });
+  }
+}
 
 export function initAssets(map) {
   const size = 600;
@@ -83,6 +112,7 @@ export function initAssets(map) {
   map.addImage('explosion-point', explosion, { pixelRatio: 2 });
 
   loadAssets(map);
+  initHealthArcs(map);
 }
 
 export function initLayerStyles(map, { id }) {
@@ -94,7 +124,7 @@ export function initLayerStyles(map, { id }) {
     filter: ['all', ['has', 'isProjectile']],
     layout: {},
     paint: {
-      'line-width': 4,
+      'line-width': ['case', ['has', 'isTorpedo'], 9, 4],
       'line-opacity': [
         'case', ['has', 'expired'],
         0,
@@ -103,6 +133,8 @@ export function initLayerStyles(map, { id }) {
       'line-color': [
         'case', ['has', 'robotProjectile'],
         'rgb(0,255,0)',
+        ['has', 'isTorpedo'],
+        'rgb(40,140,255)',
         'red'
       ]
       // 'line-gradient': [
@@ -136,15 +168,10 @@ export function initLayerStyles(map, { id }) {
       'icon-rotate': ['get', 'bearing'],
       'icon-pitch-alignment': 'map',
 
-      'text-field': ['case', ['get', 'isPlayer'],
+      'text-field': ['case', ['any', ['has', 'isDrop'], ['has', 'isBlast']], '', ['get', 'isPlayer'],
         [
           'format',
-          [
-            'concat',
-            'Health: ', ['ceil', ['-', 100, ['*', 100, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]]],
-            '\n',
-            'Kills: ', ['get', 'kills'],
-          ],
+          ['concat', 'Kills: ', ['get', 'kills']],
           { 'font-size': 14 },
         ], 'true',
       ],
@@ -163,27 +190,56 @@ export function initLayerStyles(map, { id }) {
     id: `${id}-health`,
     type: 'circle',
     source: 'flock',
-    filter: ['==', '$type', 'Point'],
-    layout: {
-
-    },
+    // Expression syntax throughout: mixing the legacy ['==', '$type', ...] form with expressions
+    // makes Mapbox read the whole filter as legacy, and then it matches nothing.
+    // Enemies show the health arc instead of the ring.
+    filter: ['all', ['==', ['geometry-type'], 'Point'], ['!', ['has', 'isBlast']], ['!', ['has', 'isRobot']]],
+    layout: {},
     paint: {
       'circle-color': 'transparent',
-      'circle-stroke-color': ["interpolate-hcl",
-        ["linear"],
-        ['-', 100, ['*', 100, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]],
-        0, 'rgba(255,0,0,0.9)',
-        90, 'rgba(250,200,155,0.3)',
-        100, 'rgba(100,100,255,0.2)',
+      'circle-stroke-color': ['case', ['has', 'isDrop'],
+        'rgba(60,255,130,0.2)',
+        ['interpolate-hcl',
+          ['linear'],
+          ['-', 100, ['*', 100, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]],
+          0, 'rgba(255,0,0,0.9)',
+          90, 'rgba(250,200,155,0.3)',
+          100, 'rgba(100,100,255,0.2)',
+        ],
       ],
       'circle-stroke-width': 2,
-      'circle-radius': ['-', 100, ['*', 100, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]],
+      // Recharge boxes get a small fixed green ring; craft get a shield ring that shrinks as health drops.
+      'circle-radius': ['case', ['has', 'isDrop'],
+        22,
+        ['-', 100, ['*', 100, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]],
+      ],
     }
+  });
+
+  map.addLayer({
+    id: `${id}-health-arc`,
+    type: 'symbol',
+    source: 'flock',
+    filter: ['all', ['==', ['geometry-type'], 'Point'], ['any', ['has', 'isPlayer'], ['has', 'isRobot']], ['!', ['has', 'expired']]],
+    layout: {
+      // ceil, so a craft with any health left always shows at least one green step.
+      'icon-image': ['concat', 'hp-', ['to-string',
+        ['max', 0, ['min', HEALTH_ARC_STEPS, ['ceil', ['*', HEALTH_ARC_STEPS,
+          ['-', 1, ['/', ['to-number', ['get', 'hitCount']], ['to-number', ['get', 'hitCapacity']]]]]]]],
+      ]],
+      'icon-size': ['/', ['get', 'arcRadius'], HEALTH_ARC_RADIUS],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      // Stays upright over the craft however the map is tilted or the craft is turned.
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+    },
   });
 
   layers.push(`${id}-main`);
   layers.push(`${id}-projectile`);
   layers.push(`${id}-health`);
+  layers.push(`${id}-health-arc`);
   return {
     remove: () => layers.forEach((layerId) => {
       map.removeLayer(layerId)

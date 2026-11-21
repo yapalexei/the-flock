@@ -1,4 +1,5 @@
 import addFlockLayer from './layer/addFlockLayer';
+import selectCraft from './craft-select';
 import './polyfills';
 
 mapboxgl.accessToken = process.env.MAPBOX_ACCESS_TOKEN;
@@ -6,8 +7,7 @@ const style = process.env.MAPBOX_STYLE;
 const origCenter = [-122.67118367793355, 45.520579458294915];
 // const origCenter = [-74.0210715263351, 40.727543577399416];
 
-const SOCKET_HOST = process.env.SOCKET_HOST || '192.168.1.115';
-const SOCKET_PORT = process.env.SOCKET_PORT || 3001;
+const SOCKET_URL = process.env.SOCKET_URL;
 
 var map = new mapboxgl.Map({
   container: "map",
@@ -22,13 +22,7 @@ var map = new mapboxgl.Map({
 // map.showTileBoundaries = true;
 
 map.on("load", function () {
-  addFlockLayer(map, {
-    defaultCenter: origCenter,
-    SOCKET_HOST,
-    SOCKET_PORT,
-  });
   window.mapbox = map;
-
   map.addLayer(
     {
       'id': '3d-buildings',
@@ -62,6 +56,25 @@ map.on("load", function () {
         'fill-extrusion-opacity': 0.6
       }
     });
+
+  let lastCraft = null;
+  const chooseCraft = (title) => selectCraft({
+    blur: map.getContainer(),
+    initialId: lastCraft && lastCraft.id,
+    title,
+  }).then((craft) => {
+    lastCraft = craft;
+    return craft;
+  });
+
+  chooseCraft().then((craft) => {
+    addFlockLayer(map, {
+      defaultCenter: origCenter,
+      SOCKET_URL,
+      craft,
+      chooseCraft: () => chooseCraft('You were destroyed. Choose another craft'),
+    });
+  });
 });
 
 

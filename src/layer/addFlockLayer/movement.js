@@ -99,6 +99,8 @@ function Movement({
   return {
     enable,
     disable,
+    // Whether any arrow key is held (the craft is under thrust).
+    isThrusting: () => !!(states[KEY.UP] || states[KEY.DOWN] || states[KEY.LEFT] || states[KEY.RIGHT]),
   }
 };
 

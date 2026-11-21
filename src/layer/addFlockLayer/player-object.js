@@ -1,8 +1,8 @@
 import { bearing } from './utils';
 
-const PlayerObject = (id, initState = {}) => {
+const PlayerObject = (id, initState = {}, { friction = 0.05 } = {}) => {
   const PRECISION = 0.000005;
-  const FRICTION = 0.05;
+  const FRICTION = friction;
   const x = initState.pos && initState.pos.x || 0;
   const y = initState.pos && initState.pos.y || 0;
   const xV = initState.velocity && initState.velocity.x || 0;

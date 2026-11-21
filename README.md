@@ -4,21 +4,51 @@ A multi player/user app/game that connects through a (socket.io) websocket serve
 Fighter craft credits go to [kavinveldar](https://www.deviantart.com/kavinveldar/gallery).
 
 ## Prerequisites
-- node version: 12.12.0
-- npm version: 6.11.3
-- Be sure to have [the-flock-network](https://github.com/yapalexei/the-flock-network) running on port 3001.
-- Before you can run this example update the `MAPBOX_ACCESS_TOKEN` inside the `.env.defaults` file to a valid mapbox-gl token. Or add it to `.env` file to override it.
+- node >= 20 and [pnpm](https://pnpm.io) (`corepack enable`)
+- [the-flock-network](https://github.com/yapalexei/the-flock-network) running (default `http://localhost:3001`).
+- A Mapbox public token: set `MAPBOX_ACCESS_TOKEN` in a `.env` file (overrides `.env.defaults`). Restrict the token to your hosting URLs in the Mapbox dashboard.
 - (optional) Docker
 
 ## Setup and run steps
-- `yarn`
-- `yarn start`
-- OR (optionally) `yarn docker`
+- `pnpm install`
+- `pnpm start` (dev server on :9000)
+- OR (optionally) `MAPBOX_ACCESS_TOKEN=pk... pnpm docker` (static build served by nginx)
+
+## Config (env, baked in at build time)
+- `SOCKET_URL` - full URL of the network server, e.g. `https://flock-network.up.railway.app` (must be `https://` when the client is served over https).
+- `MAPBOX_ACCESS_TOKEN`, `MAPBOX_STYLE`.
+
+## Hosting on Railway
+- Deploy this repo and the-flock-network as two services (each has a Dockerfile).
+- Client service variables: `SOCKET_URL`, `MAPBOX_ACCESS_TOKEN`, (`MAPBOX_STYLE`).
+- Network service variables: `ALLOWED_ORIGINS=https://<client-domain>`, `ALLOW_RESET=0`, `ROBOTS`, `FPS`; healthcheck path `/health`.
 
 ## Game Controls
 - The arrow keys.
 - space bar to fire
 - "t" for 2x speed.
+- "s" toggles torpedoes (HUD bottom-left shows the selected weapon).
+
+## Choosing a craft
+Once the map has loaded a (blurred-background) dialog lists the craft. Selecting one shows its speed, agility and shields; "Start!" connects and launches the game.
+- Speed: top speed. Agility: how quickly the craft changes direction and stops.
+- Shields: hit points. The server owns this value per craft (`CRAFT_HIT_CAPACITY` in the-flock-network), so keep it in sync with `src/layer/addFlockLayer/crafts.js` when adding or retuning a craft.
+- Cannons alternate: X-Wing, A-Wing and J-Wing fire from the left/right wing cannons, the Y-Wing from its two nose cannons.
+- Side cannons are toed in slightly so their shots cross in front of the craft. Without that, X-Wing wingtip shots run ~40m either side of the centreline and can never hit a target dead ahead (the server hit radius is ~17m).
+- Enemy fighters (server, `ENABLE_ENEMY_SHOOTING`) fire from side cannons too, alternating, using the same toe-in. Their positions are in `ROBOT_CANNONS` in the-flock-network and assume the default zoom (16).
+- When your craft is destroyed the dialog comes back so you can pick another one (the connection and the world carry on).
+- Destroyed enemies drop a green recharge box 5% of the time (server `DROP_CHANCE`). Fly over it to restore half your shield capacity.
+
+## Torpedoes, blasts and enemy flight
+- Armed torpedoes (`s`) fire at half the laser rate and hit for 10 (lasers 1). A torpedo detonates near any craft and its blast hurts everything within 100m: full damage inside 40m, fading to zero at the edge. You are never hurt by your own torpedo. The server decides the damage; the client only says "torpedo".
+- Every destroyed craft (player or enemy) explodes too: 5 damage within 20m, fading to zero at 50m. That can destroy neighbours in turn (a chain reaction), and the kills are credited to whoever started it.
+- Enemies make strafing runs: they fly straight at you, pivot to face away when 40m from you, fly straight away for 0.8-1.6s, pivot back and come again. They only shoot while flying at you. The logic is in the-flock-network `src/server/flight.js`, split into `planFlight` (what the enemy wants) and `applyFlight` (turn and move) so steering rules can adjust heading and speed in between.
+- Enemies avoid each other (`src/server/avoidance.js`) using two distances between craft centres: inside the outer one (70m, safe) a fighter steers away from the neighbour, slows down for one ahead and speeds up when pressed from behind; crossing the inner one (35m) is a collision: both take 1 damage (at most every 0.4s each) and are shoved apart. Nobody is credited with a collision kill, but the wreck explodes like any other.
+- Health display: players and enemies get an arc over the craft (green = health left on top of red = capacity, 40 steps; span set by `HEALTH_ARC_SPAN_DEG` in `utils.js`). Players also keep the shrinking shield ring, enemies no longer have one, and recharge boxes have a small fixed green ring. All Mapbox filters in `utils.js` must use expression syntax (`['geometry-type']`, not `'$type'`) once they contain `!`/`has`, or Mapbox reads the whole filter as legacy and it matches nothing.
+
+## Sound
+- Player shots: `reb-laser.mp3`. Torpedo launch: `missile-fire.mp3`. Enemy shots: `tie-fire-1.mp3`. Any craft destroyed or torpedo detonated: `explosion-large-2.mp3`. Engine hum while any arrow key is held: `engine-wash-2-loop.mp3` (looped, 0.5s fade in, 0.7s fade out).
+- Enemy sounds are detected from the server broadcast and kept in check for crowds (`src/layer/addFlockLayer/sounds.js`): a voice cap per sound, enemy shots cut to 0.6s, a little random pitch per playback, distance falloff (silent beyond 500m, nearest first), and a compressor on the output. Your own sounds are never dropped.
 
 ## General Component/Flow Diagram
 ![](cleint-game-logic-flow-diagram.jpg)

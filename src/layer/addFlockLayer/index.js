@@ -1,25 +1,56 @@
 import io from 'socket.io-client';
 import Animator from './animator';
 import Movement from './movement';
-import { initSource, initLayerStyles, initStatLayers, initAssets, playerCraft } from './utils';
+import { initSource, initLayerStyles, initStatLayers, initAssets } from './utils';
+import { handling, muzzlePosition, arcRadiusPx } from './crafts';
 import PlayerObject from './player-object';
-import tieFireSound from './assets/tie-fire-1.mp3';
-const TIME_BETWEEN_FIRE = 150;
+import createSounds from './sounds';
+import createWeaponIndicator from './weapon-indicator';
+const TIME_BETWEEN_FIRE = 90;
+// "s" arms torpedoes: half the firing rate, 10x the damage (the server decides the damage; this is what we claim).
+const TIME_BETWEEN_TORPEDOES = TIME_BETWEEN_FIRE * 2;
+const TORPEDO_HIT_VALUE = 10;
+// Enemy sounds fade out with distance from the player (squared falloff) and are silent beyond this.
+const AUDIBLE_RADIUS_M = 1000;
 
+const DEATH_DELAY = 500;
+
+/**
+ * `craft` is the first craft to fly. After it is destroyed the layer is torn down
+ * and `chooseCraft()` (resolves with a craft) is asked for the next one; the socket stays connected.
+ */
 const addFlockLayer = (map, {
   layerId = 'flock',
   defaultCenter = [-74.0210715263351, 40.727543577399416],
-  SOCKET_HOST,
-  SOCKET_PORT,
+  SOCKET_URL,
+  craft,
+  chooseCraft,
 }) => {
   const gameState = {
     fireCount: 0,
     playersById: {},
+    craft,
+    map,
+    connection: null,
+    playerObject: null,
+    selecting: false,
+    heard: new Set(),
+    soundsPrimed: false,
+    sounds: createSounds(),
+    torpedoesArmed: false,
+    weaponIndicator: null,
+    keyListener: null,
   }
+  const { sounds } = gameState;
 
   initAssets(map);
 
-  const init = ({ id: playerUuid, fps, gameCenter, }) => {
+  const startGame = (craft) => {
+    gameState.craft = craft;
+    gameState.selecting = false;
+    // Without a connection the 'connected' handler starts the game.
+    if (!gameState.connection) return;
+    const { id: playerUuid, fps, gameCenter } = gameState.connection;
     console.log({ fps, playerUuid, gameCenter });
     const center = gameCenter && gameCenter.length === 2 ? gameCenter : defaultCenter;
     /**
@@ -31,27 +62,39 @@ const addFlockLayer = (map, {
     }
 
     console.log('connected', playerUuid);
-    const speed = 0.000005;
-    const random = Math.random();
-    const craftNames = Object.keys(playerCraft);
-    const fighterIndex = random * craftNames.length === craftNames.length ? 1 : ~~(random * craftNames.length);
-    const craftName = craftNames[fighterIndex];
-    const playerObject = new PlayerObject(playerUuid, {
+    const { friction, thrust } = handling(craft);
+    const playerObject = PlayerObject(playerUuid, {
       isPlayer: true,
       pos: {x: center[0], y: center[1]},
-      icon: craftName,
-      'icon-size': craftName.indexOf('xWing') > -1 ? 0.4 : 0.5,
-      hitCapacity: 100,
+      icon: craft.id,
+      'icon-size': craft.iconSize,
+      hitCapacity: craft.shield,
       hitCount: 10,
-    });
-    // gameState.playerObject = playerObject;
+    }, { friction });
+    gameState.playerObject = playerObject;
+    gameState.playersById = {};
+    // Don't make noise for everything that is already happening when a round starts.
+    gameState.heard = new Set();
+    gameState.soundsPrimed = false;
+    sounds.unlock();
+    // "s" toggles between lasers and torpedoes.
+    gameState.torpedoesArmed = false;
+    gameState.weaponIndicator = createWeaponIndicator();
+    gameState.keyListener = (e) => {
+      if (e.repeat || (e.key || '').toLowerCase() !== 's') return;
+      gameState.torpedoesArmed = !gameState.torpedoesArmed;
+      gameState.weaponIndicator.update(gameState.torpedoesArmed);
+    };
+    window.addEventListener('keydown', gameState.keyListener);
+    // The map is wherever the previous craft was destroyed; the new one spawns at the game center.
+    map.jumpTo({ center });
 
-    gameState.source = gameState.source || initSource(map, { id: layerId, initFeatures: objectsToFeatures([playerObject], playerObject.id) });
-    gameState.statsMapLayer = gameState.statsMapLayer || initStatLayers(map, { id: layerId });
-    gameState.mainMapLayer = gameState.mainMapLayer || initLayerStyles(map, { id: layerId });
+    gameState.source = initSource(map, { id: layerId, initFeatures: objectsToFeatures([playerObject], playerObject.id) });
+    gameState.statsMapLayer = initStatLayers(map, { id: layerId });
+    gameState.mainMapLayer = initLayerStyles(map, { id: layerId });
     // init pos and state
-    websocket.binary(true).send({ [playerObject.id]: playerObject.getState() });
-    gameState.animator = gameState.animator || new Animator({
+    websocket.send({ [playerObject.id]: playerObject.getState() });
+    gameState.animator = new Animator({
       fps: fps || 25,
       callback: () => {
         const playerState = playerObject.getState();
@@ -68,29 +111,31 @@ const addFlockLayer = (map, {
             features,
           });
         }
+        // Engine hum while thrusting in any direction (arrow keys); fades in and out.
+        sounds.setLoop('engine', gameState.playerObject === playerObject && gameState.movement.isThrusting());
 
 
-        if (!playerState.isIdle) {
-          websocket.binary(true).send({ [playerObject.id]: playerObject.getState() });
+        if (!playerState.isIdle && gameState.playerObject === playerObject) {
+          websocket.send({ [playerObject.id]: playerObject.getState() });
           playerObject.next();
         }
         removeExpiredObjects();
       },
     });
-    gameState.cameraAnimator = gameState.cameraAnimator || new Animator({
-      fps: 5,
+    gameState.cameraAnimator = new Animator({
+      fps: 15,
       callback: () => {
         const playerState = playerObject.getState();
         if (!playerState.isIdle) {
-          map.panTo(playerObject.getPos(), {duration: 1500});
+          map.panTo(playerObject.getPos(), {duration: 400});
         }
       },
     });
 
-    gameState.movement = gameState.movement || new Movement({
+    gameState.movement = new Movement({
       fps: fps || 30,
       callback: (states) => {
-        const tSpeed = states.T ? speed*3 : speed;
+        const tSpeed = states.T ? thrust*3 : thrust;
         if (states.UP) playerObject.addY(tSpeed);
         if (states.DOWN) playerObject.addY(-tSpeed);
         if (states.LEFT) playerObject.addX(-tSpeed);
@@ -128,36 +173,26 @@ const addFlockLayer = (map, {
     function resetGame() {
       if (!gameState.resetAt || Date.now() - gameState.resetAt > 5000) {
         gameState.resetAt = Date.now();
-        websocket.binary(true).emit('reset game');
+        websocket.emit('reset game');
       }
     }
-
-    websocket.on('message-all', function(props) {
-      gameState.lastMessage = Date.now();
-      gameState.playersById = {};
-
-      // if (gameState.playerObject) {
-      //   gameState.playerObject = new PlayerObject(gameState.playerObject.id, props[gameState.playerObject.id]);
-      //   gameState.playersById[gameState.playerObject.id] = gameState.playerObject;
-      // }
-
-      const objects = Object.entries(props);
-      objects.map(([key, obj]) => {
-        gameState.playersById[obj.id] = new PlayerObject( key, obj );
-      });
-    });
 
     gameState.movement.enable();
     gameState.animator.start();
     gameState.cameraAnimator.start();
   };
 
-  const websocket = io(`ws://${SOCKET_HOST}:${SOCKET_PORT}`);
+  const websocket = io(SOCKET_URL);
 
   function unmount() {
+    gameState.playerObject = null;
+    sounds.setLoop('engine', false);
+    if (!gameState.source) return;
     gameState.animator.stop();
     gameState.cameraAnimator.stop();
     gameState.movement.disable();
+    window.removeEventListener('keydown', gameState.keyListener);
+    gameState.weaponIndicator.remove();
     gameState.statsMapLayer.remove();
     gameState.statsMapLayer = null;
     gameState.mainMapLayer.remove();
@@ -169,12 +204,81 @@ const addFlockLayer = (map, {
     }
   }
 
+  function handleDestroyed() {
+    gameState.selecting = true;
+    // Stops state updates being sent for the dead craft; the server ignores them anyway.
+    gameState.playerObject = null;
+    gameState.movement.disable();
+    // Let the explosion play, and give the server time to remove the craft before a new one is sent.
+    setTimeout(() => {
+      unmount();
+      chooseCraft().then(startGame);
+    }, DEATH_DELAY);
+  }
+
+  /**
+   * Enemy shots and explosions are detected as new ids in the server broadcast (no extra
+   * network events). The player's own sounds are never attenuated or dropped. Everything else is
+   * attenuated by distance and played nearest first, so when the voice caps in sounds.js
+   * are hit it is the far-away noise that gets dropped.
+   */
+  function playWorldSounds(props, listener) {
+    const listenerPos = listener.getPos();
+    const present = new Set();
+    const events = [];
+    Object.values(props).forEach((obj) => {
+      let name = null;
+      if (obj.isProjectile) {
+        if (obj.robotProjectile) name = 'enemyFire';
+      } else if (obj.isBlast) {
+        name = 'explosion';
+      } else if (obj.expired && !obj.isDrop) {
+        name = 'explosion';
+      }
+      if (!name) return;
+      const key = `${name}:${obj.id}`;
+      present.add(key);
+      if (gameState.heard.has(key)) return;
+      gameState.heard.add(key);
+      if (!gameState.soundsPrimed || (name === 'enemyFire' && obj.expired)) return;
+      const isOwn = obj.id === listener.id;
+      events.push({ name, isOwn, distance: isOwn ? 0 : distanceMeters(listenerPos, obj.pos) });
+    });
+    gameState.heard.forEach((key) => {
+      if (!present.has(key)) gameState.heard.delete(key);
+    });
+    gameState.soundsPrimed = true;
+
+    events.sort((a, b) => a.distance - b.distance).forEach(({ name, isOwn, distance }) => {
+      sounds.play(name, {
+        volume: isOwn ? 1 : Math.max(0, 1 - distance / AUDIBLE_RADIUS_M) ** 2,
+        priority: isOwn,
+      });
+    });
+  }
+
   const handleServerDisconnection = () => {
+    gameState.connection = null;
     unmount();
   };
 
-  websocket.on('connected', init);
+  websocket.on('connected', (connection) => {
+    gameState.connection = connection;
+    if (!gameState.playerObject && !gameState.selecting) startGame(gameState.craft);
+  });
   websocket.on('disconnect', handleServerDisconnection);
+  websocket.on('message-all', function(props) {
+    gameState.lastMessage = Date.now();
+    gameState.playersById = {};
+
+    Object.entries(props).forEach(([key, obj]) => {
+      gameState.playersById[obj.id] = PlayerObject(key, obj);
+    });
+
+    if (gameState.playerObject) playWorldSounds(props, gameState.playerObject);
+    const own = gameState.playerObject && props[gameState.playerObject.id];
+    if (own && own.expired) handleDestroyed();
+  });
   websocket.on('object removed', function(id) {
     gameState.lastMessage = Date.now();
     delete gameState.playersById[id];
@@ -188,29 +292,42 @@ const addFlockLayer = (map, {
 function fireProjectile(playerObject, gameState, websocket) {
   const now = Date.now();
   const playerState = playerObject.getState();
+  const torpedo = gameState.torpedoesArmed;
   if (
     !playerState.statistics.roundShotAt ||
     playerState.statistics.roundShotAt &&
-    (now - playerState.statistics.roundShotAt) > TIME_BETWEEN_FIRE
+    (now - playerState.statistics.roundShotAt) > (torpedo ? TIME_BETWEEN_TORPEDOES : TIME_BETWEEN_FIRE)
   ) {
     playerObject.fire();
     playerObject.updateStats({ roundShotAt: now });
-    const playerPos = playerObject.getPos();
+    const bearing = playerObject.getBearing() || 0;
+    // Alternate through the craft's cannons, starting with the first.
+    const muzzle = muzzlePosition(gameState.craft, gameState.fireCount, {
+      pos: playerObject.getPos(),
+      bearing,
+      zoom: gameState.map.getZoom(),
+    });
     gameState.fireCount += 1;
-    const projectile = new PlayerObject(playerObject.id + gameState.fireCount, {
-      pos: { x: playerPos[0], y: playerPos[1] },
+    const projectile = PlayerObject(playerObject.id + gameState.fireCount, {
+      pos: { x: muzzle.x, y: muzzle.y },
       icon: 'dot-11',
       isProjectile: 'true',
-      bearing: playerObject.getBearing() || 0,
-      hitValue: 1,
+      ...(torpedo && { isTorpedo: true }),
+      bearing: muzzle.bearing,
+      hitValue: torpedo ? TORPEDO_HIT_VALUE : 1,
       ownerId: playerObject.id,
     });
-    const audio = new Audio();
-    audio.src = tieFireSound;
-    audio.volume = 0.25;
-    audio.play();
-    websocket.binary(true).send({ [projectile.id]: projectile.getState() });
+    gameState.sounds.play(torpedo ? 'torpedoFire' : 'playerFire');
+    websocket.send({ [projectile.id]: projectile.getState() });
   }
+}
+
+// Approximate ground distance between a [lng, lat] and an {x, y} point; fine at audible ranges.
+function distanceMeters([lng, lat], { x, y }) {
+  const metersPerDegree = 111195;
+  const dx = (x - lng) * Math.cos(lat * Math.PI / 180) * metersPerDegree;
+  const dy = (y - lat) * metersPerDegree;
+  return Math.hypot(dx, dy);
 }
 
 function objectsToFeatures(points, mainPlayerId) {
@@ -231,6 +348,11 @@ function objectsToFeatures(points, mainPlayerId) {
         hitCapacity: props.hitCapacity,
         kills: props.statistics.kills || 0,
         isPlayer: props.isPlayer,
+        isDrop: props.isDrop,
+        isBlast: props.isBlast,
+        isTorpedo: props.isTorpedo,
+        isRobot: props.isRobot,
+        arcRadius: props.isPlayer || props.isRobot ? arcRadiusPx(props.icon, props['icon-size']) : undefined,
         robotProjectile: props.robotProjectile,
       },
       geometry: {
@@ -254,7 +376,7 @@ function objectsToFeatures(points, mainPlayerId) {
 function linesToOtherPointsFromPoint(points, p1) {
   return points.reduce((lines, p2) => {
     const p2props = p2.getState();
-    if (p2props.isProjectile) return lines;
+    if (p2props.isProjectile || p2props.isDrop || p2props.isBlast) return lines;
     if (p1.id !== p2.id) {
       const distance = calcDistance(p1.getPos(), p2.getPos());
       if (distance < 0.00001) {
