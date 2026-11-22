@@ -18,6 +18,7 @@ Fighter craft credits go to [kavinveldar](https://www.deviantart.com/kavinveldar
 
 ## Config (env, baked in at build time)
 - `SOCKET_URL` - full URL of the network server, e.g. `https://flock-network.up.railway.app` (must be `https://` when the client is served over https).
+- Same domain as the network server (no CORS): set `SOCKET_URL=/` on the client, and `NETWORK_URL` (runtime, e.g. `http://the-flock-network.railway.internal:3001`) so nginx proxies `/socket.io/` to it. Set the network's `ALLOWED_ORIGINS` to the client's public origin.
 - Playing from another device on your network: run both servers on `0.0.0.0` (`CLIENT_HOST=0.0.0.0`, the network server's `HOST` default) and open `http://<this computer's LAN IP>:9000` (find it with `ipconfig getifaddr en0`, or `ifconfig`). Type all four numbers: `192.168.118` is read as `192.168.0.118`. If `SOCKET_URL` points at `localhost` or `0.0.0.0` the page uses the host it was loaded from, so it needs no change. The network server's `ALLOWED_ORIGINS` must allow the page's origin (`*` or `http://<lan ip>:9000`).
 - `MAPBOX_ACCESS_TOKEN`, `MAPBOX_STYLE`.
 
