@@ -6,6 +6,8 @@ import { handling, muzzlePosition, arcRadiusPx } from './crafts';
 import PlayerObject from './player-object';
 import createSounds from './sounds';
 import createWeaponIndicator from './weapon-indicator';
+import createPerfHud from './perf-hud';
+import decodeWire from './world-wire';
 const TIME_BETWEEN_FIRE = 90;
 // "s" arms torpedoes: half the firing rate, 10x the damage (the server decides the damage; this is what we claim).
 const TIME_BETWEEN_TORPEDOES = TIME_BETWEEN_FIRE * 2;
@@ -40,6 +42,9 @@ const addFlockLayer = (map, {
     torpedoesArmed: false,
     weaponIndicator: null,
     keyListener: null,
+    perfHud: null,
+    world: {},
+    messageCount: 0,
   }
   const { sounds } = gameState;
 
@@ -73,6 +78,9 @@ const addFlockLayer = (map, {
     }, { friction });
     gameState.playerObject = playerObject;
     gameState.playersById = {};
+    // Start from an empty world; the server answers with a full snapshot.
+    gameState.world = {};
+    websocket.emit('resync');
     // Don't make noise for everything that is already happening when a round starts.
     gameState.heard = new Set();
     gameState.soundsPrimed = false;
@@ -86,6 +94,10 @@ const addFlockLayer = (map, {
       gameState.weaponIndicator.update(gameState.torpedoesArmed);
     };
     window.addEventListener('keydown', gameState.keyListener);
+    gameState.perfHud = createPerfHud(map, {
+      getObjects: () => gameState.world,
+      getMessageCount: () => gameState.messageCount,
+    });
     // The map is wherever the previous craft was destroyed; the new one spawns at the game center.
     map.jumpTo({ center });
 
@@ -119,7 +131,6 @@ const addFlockLayer = (map, {
           websocket.send({ [playerObject.id]: playerObject.getState() });
           playerObject.next();
         }
-        removeExpiredObjects();
       },
     });
     gameState.cameraAnimator = new Animator({
@@ -145,31 +156,6 @@ const addFlockLayer = (map, {
       },
     });
 
-    function removeExpiredObjects() {
-      gameState.playersById = Object.values(gameState.playersById).reduce((sum, item) => {
-        const props = item.getState();
-        if (Date.now() - props.time < 1000) {
-          sum[item.id] = item;
-          return sum;
-        }
-
-        if (props.expired) {
-          return sum;
-        }
-
-        if (props.time === -1) {
-          sum[item.id] = item;
-          return sum;
-        }
-
-        if (!props.isProjectile) {
-          sum[item.id] = item;
-          return sum;
-        }
-        return sum;
-      }, {});
-    }
-
     function resetGame() {
       if (!gameState.resetAt || Date.now() - gameState.resetAt > 5000) {
         gameState.resetAt = Date.now();
@@ -193,6 +179,7 @@ const addFlockLayer = (map, {
     gameState.movement.disable();
     window.removeEventListener('keydown', gameState.keyListener);
     gameState.weaponIndicator.remove();
+    gameState.perfHud.remove();
     gameState.statsMapLayer.remove();
     gameState.statsMapLayer = null;
     gameState.mainMapLayer.remove();
@@ -217,16 +204,16 @@ const addFlockLayer = (map, {
   }
 
   /**
-   * Enemy shots and explosions are detected as new ids in the server broadcast (no extra
+   * Enemy shots and explosions are detected as new ids in the server updates (no extra
    * network events). The player's own sounds are never attenuated or dropped. Everything else is
    * attenuated by distance and played nearest first, so when the voice caps in sounds.js
    * are hit it is the far-away noise that gets dropped.
+   * `updated` are the decoded objects that changed, `removed` the ids that left the world.
    */
-  function playWorldSounds(props, listener) {
+  function playWorldSounds(updated, removed, listener) {
     const listenerPos = listener.getPos();
-    const present = new Set();
     const events = [];
-    Object.values(props).forEach((obj) => {
+    updated.forEach((obj) => {
       let name = null;
       if (obj.isProjectile) {
         if (obj.robotProjectile) name = 'enemyFire';
@@ -237,15 +224,15 @@ const addFlockLayer = (map, {
       }
       if (!name) return;
       const key = `${name}:${obj.id}`;
-      present.add(key);
       if (gameState.heard.has(key)) return;
       gameState.heard.add(key);
       if (!gameState.soundsPrimed || (name === 'enemyFire' && obj.expired)) return;
       const isOwn = obj.id === listener.id;
       events.push({ name, isOwn, distance: isOwn ? 0 : distanceMeters(listenerPos, obj.pos) });
     });
-    gameState.heard.forEach((key) => {
-      if (!present.has(key)) gameState.heard.delete(key);
+    removed.forEach((id) => {
+      gameState.heard.delete(`enemyFire:${id}`);
+      gameState.heard.delete(`explosion:${id}`);
     });
     gameState.soundsPrimed = true;
 
@@ -267,21 +254,31 @@ const addFlockLayer = (map, {
     if (!gameState.playerObject && !gameState.selecting) startGame(gameState.craft);
   });
   websocket.on('disconnect', handleServerDisconnection);
-  websocket.on('message-all', function(props) {
+  // Server updates: { s?: 1 (full snapshot), u: objects that are new or changed, d: ids that left }.
+  websocket.on('world', function({ s: snapshot, u, d }) {
     gameState.lastMessage = Date.now();
-    gameState.playersById = {};
+    gameState.messageCount += 1;
+    if (snapshot) {
+      gameState.world = {};
+      gameState.playersById = {};
+      // Don't make noise for everything that is already happening.
+      gameState.heard = new Set();
+      gameState.soundsPrimed = false;
+    }
 
-    Object.entries(props).forEach(([key, obj]) => {
-      gameState.playersById[obj.id] = PlayerObject(key, obj);
+    const updated = u.map(decodeWire);
+    updated.forEach((state) => {
+      gameState.world[state.id] = state;
+      gameState.playersById[state.id] = PlayerObject(state.id, state);
+    });
+    d.forEach((id) => {
+      delete gameState.world[id];
+      delete gameState.playersById[id];
     });
 
-    if (gameState.playerObject) playWorldSounds(props, gameState.playerObject);
-    const own = gameState.playerObject && props[gameState.playerObject.id];
+    if (gameState.playerObject) playWorldSounds(updated, d, gameState.playerObject);
+    const own = gameState.playerObject && gameState.world[gameState.playerObject.id];
     if (own && own.expired) handleDestroyed();
-  });
-  websocket.on('object removed', function(id) {
-    gameState.lastMessage = Date.now();
-    delete gameState.playersById[id];
   });
 
   return {

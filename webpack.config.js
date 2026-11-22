@@ -13,7 +13,7 @@ module.exports = (env, argv) => {
       static: path.join(__dirname, 'dist'),
       compress: true,
       port: process.env.CLIENT_PORT || 9000,
-      host: process.env.CLIENT_HOST || 'localhost',
+      host: process.env.CLIENT_HOST || '0.0.0.0',
     },
     output: {
       path: path.resolve(__dirname, 'dist'),

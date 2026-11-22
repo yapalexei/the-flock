@@ -117,40 +117,35 @@ export function initAssets(map) {
 
 export function initLayerStyles(map, { id }) {
   const layers = [];
-  map.addLayer({
-    id: `${id}-projectile`,
-    type: 'line',
-    source: 'flock',
-    filter: ['all', ['has', 'isProjectile']],
-    layout: {},
-    paint: {
-      'line-width': ['case', ['has', 'isTorpedo'], 9, 4],
-      'line-opacity': [
-        'case', ['has', 'expired'],
-        0,
-        1,
-      ],
-      'line-color': [
-        'case', ['has', 'robotProjectile'],
-        'rgb(0,255,0)',
-        ['has', 'isTorpedo'],
-        'rgb(40,140,255)',
-        'red'
-      ]
-      // 'line-gradient': [
-      //   'case', ['has', 'robotProjectile'],
-      //   'green',
-      //   [
-      //     'interpolate',
-      //     ['linear'],
-      //     ['line-progress'],
-      //     0, 'rgba(255, 0, 0, 0)',
-      //     0.5, 'rgba(255, 0, 0, 1)',
-      //     1, 'rgba(255, 0, 0, 0)',
-      //   ]
-      // ],
-    },
-  });
+  // Shots are lines from their position back to where they just were, drawn as streaks that fade at both
+  // tips. line-gradient cannot depend on feature properties, so each kind of shot gets its own layer.
+  const addStreakLayer = (name, filter, width, [r, g, b]) => {
+    const color = (alpha) => `rgba(${r},${g},${b},${alpha})`;
+    map.addLayer({
+      id: `${id}-${name}`,
+      type: 'line',
+      source: 'flock',
+      filter,
+      layout: { 'line-cap': 'round' },
+      paint: {
+        'line-width': width,
+        'line-opacity': ['case', ['has', 'expired'], 0, 1],
+        'line-gradient': [
+          'interpolate',
+          ['linear'],
+          ['line-progress'],
+          0, color(0.2),
+          0.3, color(1),
+          0.7, color(1),
+          1, color(0.2),
+        ],
+      },
+    });
+    layers.push(`${id}-${name}`);
+  };
+  addStreakLayer('projectile', ['all', ['has', 'isProjectile'], ['!', ['has', 'isTorpedo']], ['!', ['has', 'robotProjectile']]], 4, [255, 0, 0]);
+  addStreakLayer('projectile-torpedo', ['all', ['has', 'isProjectile'], ['has', 'isTorpedo']], 9, [40, 140, 255]);
+  addStreakLayer('projectile-enemy', ['all', ['has', 'isProjectile'], ['has', 'robotProjectile']], 4, [0, 255, 0]);
 
   map.addLayer({
     id: `${id}-main`,
@@ -237,7 +232,6 @@ export function initLayerStyles(map, { id }) {
   });
 
   layers.push(`${id}-main`);
-  layers.push(`${id}-projectile`);
   layers.push(`${id}-health`);
   layers.push(`${id}-health-arc`);
   return {

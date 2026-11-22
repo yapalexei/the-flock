@@ -16,6 +16,7 @@ Fighter craft credits go to [kavinveldar](https://www.deviantart.com/kavinveldar
 
 ## Config (env, baked in at build time)
 - `SOCKET_URL` - full URL of the network server, e.g. `https://flock-network.up.railway.app` (must be `https://` when the client is served over https).
+- Playing from another device on your network: run both servers on `0.0.0.0` (`CLIENT_HOST=0.0.0.0`, the network server's `HOST` default) and open `http://<this computer's LAN IP>:9000` (find it with `ipconfig getifaddr en0`, or `ifconfig`). Type all four numbers: `192.168.118` is read as `192.168.0.118`. If `SOCKET_URL` points at `localhost` or `0.0.0.0` the page uses the host it was loaded from, so it needs no change. The network server's `ALLOWED_ORIGINS` must allow the page's origin (`*` or `http://<lan ip>:9000`).
 - `MAPBOX_ACCESS_TOKEN`, `MAPBOX_STYLE`.
 
 ## Hosting on Railway
@@ -45,6 +46,10 @@ Once the map has loaded a (blurred-background) dialog lists the craft. Selecting
 - Enemies make strafing runs: they fly straight at you, pivot to face away when 40m from you, fly straight away for 0.8-1.6s, pivot back and come again. They only shoot while flying at you. The logic is in the-flock-network `src/server/flight.js`, split into `planFlight` (what the enemy wants) and `applyFlight` (turn and move) so steering rules can adjust heading and speed in between.
 - Enemies avoid each other (`src/server/avoidance.js`) using two distances between craft centres: inside the outer one (70m, safe) a fighter steers away from the neighbour, slows down for one ahead and speeds up when pressed from behind; crossing the inner one (35m) is a collision: both take 1 damage (at most every 0.4s each) and are shoved apart. Nobody is credited with a collision kill, but the wreck explodes like any other.
 - Health display: players and enemies get an arc over the craft (green = health left on top of red = capacity, 40 steps; span set by `HEALTH_ARC_SPAN_DEG` in `utils.js`). Players also keep the shrinking shield ring, enemies no longer have one, and recharge boxes have a small fixed green ring. All Mapbox filters in `utils.js` must use expression syntax (`['geometry-type']`, not `'$type'`) once they contain `!`/`has`, or Mapbox reads the whole filter as legacy and it matches nothing.
+- Shots are drawn as streaks that fade at both tips (Mapbox `line-gradient`, in `utils.js`): red lasers, blue torpedoes, green enemy fire. `line-gradient` can't vary by feature property, so each kind has its own layer; to add a kind of shot, add another `addStreakLayer` call.
+
+## Performance box
+Top-left while playing (`src/layer/addFlockLayer/perf-hud.js`, refreshed twice a second): browser FPS, how many world updates per second arrive (the server only sends what changed, so a calm scene shows few or none; it is no longer the server's frame rate), and how many craft and projectiles are inside the viewport (plus their total). The server only sends objects within about 1km of you, so these are lower than what the server is simulating. Mapbox GL JS v1 has no built-in FPS readout (only debug overlays like `map.showTileBoundaries`), so FPS is measured from `requestAnimationFrame`.
 
 ## Sound
 - Player shots: `reb-laser.mp3`. Torpedo launch: `missile-fire.mp3`. Enemy shots: `tie-fire-1.mp3`. Any craft destroyed or torpedo detonated: `explosion-large-2.mp3`. Engine hum while any arrow key is held: `engine-wash-2-loop.mp3` (looped, 0.5s fade in, 0.7s fade out).
