@@ -13,6 +13,8 @@ const origCenter = [-122.67118367793355, 45.520579458294915];
  * so when SOCKET_URL points at the local machine, use the host the page was loaded from instead.
  */
 function resolveSocketUrl(url) {
+  // Empty or a path ("/") means same origin: the web server proxies /socket.io/ to the game server.
+  if (!url || url.startsWith('/')) return window.location.origin;
   const target = new URL(url);
   const thisMachine = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'];
   if (thisMachine.includes(target.hostname) && !thisMachine.includes(window.location.hostname)) {

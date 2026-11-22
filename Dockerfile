@@ -20,4 +20,6 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /usr/src/app/dist /usr/share/nginx/html
 # Railway injects PORT; the nginx image renders the template with envsubst on start.
 ENV PORT=9000
+# Where /socket.io/ is proxied to (the-flock-network). Override on Railway with its private URL.
+ENV NETWORK_URL=http://localhost:3001
 EXPOSE 9000
