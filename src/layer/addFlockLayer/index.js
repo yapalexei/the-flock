@@ -7,6 +7,7 @@ import PlayerObject from './player-object';
 import createSounds from './sounds';
 import createWeaponIndicator from './weapon-indicator';
 import createPerfHud from './perf-hud';
+import createRadar from './radar';
 import decodeWire from './world-wire';
 const TIME_BETWEEN_FIRE = 90;
 // "s" arms torpedoes: half the firing rate, 10x the damage (the server decides the damage; this is what we claim).
@@ -16,6 +17,11 @@ const TORPEDO_HIT_VALUE = 10;
 const AUDIBLE_RADIUS_M = 1000;
 
 const DEATH_DELAY = 500;
+// Length of one movement "tick", the unit craft speed and handling are tuned in (about 38 per second,
+// what the game effectively ran at). Movement scales by real elapsed time over this, so it feels the same at any frame rate.
+const PHYSICS_TICK_MS = 26;
+// How far the radar reaches. The server sends enemies within about a kilometre, so this covers all of them.
+const RADAR_RANGE_M = 1200;
 
 /**
  * `craft` is the first craft to fly. After it is destroyed the layer is torn down
@@ -43,6 +49,7 @@ const addFlockLayer = (map, {
     weaponIndicator: null,
     keyListener: null,
     perfHud: null,
+    radar: null,
     world: {},
     messageCount: 0,
   }
@@ -98,6 +105,11 @@ const addFlockLayer = (map, {
       getObjects: () => gameState.world,
       getMessageCount: () => gameState.messageCount,
     });
+    gameState.radar = createRadar({
+      getPlayerPos: () => playerObject.getPos(),
+      getObjects: () => gameState.world,
+      rangeM: RADAR_RANGE_M,
+    });
     // The map is wherever the previous craft was destroyed; the new one spawns at the game center.
     map.jumpTo({ center });
 
@@ -108,7 +120,7 @@ const addFlockLayer = (map, {
     websocket.send({ [playerObject.id]: playerObject.getState() });
     gameState.animator = new Animator({
       fps: fps || 25,
-      callback: () => {
+      callback: (_, elapsedMs) => {
         const playerState = playerObject.getState();
         /**
          * keep animation flowing if updates are happening
@@ -117,36 +129,30 @@ const addFlockLayer = (map, {
          */
 
         if (Date.now() - gameState.lastMessage < 1000) {
-          const features = objectsToFeatures(Object.values(gameState.playersById), playerObject.id);
+          const features = objectsToFeatures(Object.values(gameState.playersById), playerObject.id, playerObject);
           gameState.source && gameState.source.self.setData({
             type: 'FeatureCollection',
             features,
           });
         }
+        gameState.radar.update();
         // Engine hum while thrusting in any direction (arrow keys); fades in and out.
         sounds.setLoop('engine', gameState.playerObject === playerObject && gameState.movement.isThrusting());
 
 
         if (!playerState.isIdle && gameState.playerObject === playerObject) {
           websocket.send({ [playerObject.id]: playerObject.getState() });
-          playerObject.next();
-        }
-      },
-    });
-    gameState.cameraAnimator = new Animator({
-      fps: 15,
-      callback: () => {
-        const playerState = playerObject.getState();
-        if (!playerState.isIdle) {
-          map.panTo(playerObject.getPos(), {duration: 400});
+          playerObject.next(elapsedMs / PHYSICS_TICK_MS);
+          // The camera follows the craft every frame; easing a new pan each time made it lurch.
+          map.jumpTo({ center: playerObject.getPos() });
         }
       },
     });
 
     gameState.movement = new Movement({
       fps: fps || 30,
-      callback: (states) => {
-        const tSpeed = states.T ? thrust*3 : thrust;
+      callback: (states, elapsedMs) => {
+        const tSpeed = (states.T ? thrust*3 : thrust) * (elapsedMs / PHYSICS_TICK_MS);
         if (states.UP) playerObject.addY(tSpeed);
         if (states.DOWN) playerObject.addY(-tSpeed);
         if (states.LEFT) playerObject.addX(-tSpeed);
@@ -165,7 +171,6 @@ const addFlockLayer = (map, {
 
     gameState.movement.enable();
     gameState.animator.start();
-    gameState.cameraAnimator.start();
   };
 
   const websocket = io(SOCKET_URL);
@@ -175,11 +180,11 @@ const addFlockLayer = (map, {
     sounds.setLoop('engine', false);
     if (!gameState.source) return;
     gameState.animator.stop();
-    gameState.cameraAnimator.stop();
     gameState.movement.disable();
     window.removeEventListener('keydown', gameState.keyListener);
     gameState.weaponIndicator.remove();
     gameState.perfHud.remove();
+    gameState.radar.remove();
     gameState.statsMapLayer.remove();
     gameState.statsMapLayer = null;
     gameState.mainMapLayer.remove();
@@ -286,6 +291,8 @@ const addFlockLayer = (map, {
   };
 };
 
+const METERS_PER_DEGREE = 111195;
+
 function fireProjectile(playerObject, gameState, websocket) {
   const now = Date.now();
   const playerState = playerObject.getState();
@@ -305,6 +312,12 @@ function fireProjectile(playerObject, gameState, websocket) {
       zoom: gameState.map.getZoom(),
     });
     gameState.fireCount += 1;
+    // The craft's speed right now, in m/s. The server adds it to the shot's own speed so a shot fired
+    // while at turbo is still faster than the craft that fired it.
+    const metersPerTick = Math.hypot(
+      playerState.velocity.x * METERS_PER_DEGREE * Math.cos(muzzle.y * Math.PI / 180),
+      playerState.velocity.y * METERS_PER_DEGREE,
+    );
     const projectile = PlayerObject(playerObject.id + gameState.fireCount, {
       pos: { x: muzzle.x, y: muzzle.y },
       icon: 'dot-11',
@@ -312,6 +325,7 @@ function fireProjectile(playerObject, gameState, websocket) {
       ...(torpedo && { isTorpedo: true }),
       bearing: muzzle.bearing,
       hitValue: torpedo ? TORPEDO_HIT_VALUE : 1,
+      shipSpeed: Math.round(metersPerTick / (PHYSICS_TICK_MS / 1000)),
       ownerId: playerObject.id,
     });
     gameState.sounds.play(torpedo ? 'torpedoFire' : 'playerFire');
@@ -321,15 +335,23 @@ function fireProjectile(playerObject, gameState, websocket) {
 
 // Approximate ground distance between a [lng, lat] and an {x, y} point; fine at audible ranges.
 function distanceMeters([lng, lat], { x, y }) {
-  const metersPerDegree = 111195;
+  const metersPerDegree = METERS_PER_DEGREE;
   const dx = (x - lng) * Math.cos(lat * Math.PI / 180) * metersPerDegree;
   const dy = (y - lat) * metersPerDegree;
   return Math.hypot(dx, dy);
 }
 
-function objectsToFeatures(points, mainPlayerId) {
+/**
+ * `localCraft` is the player's own craft: it is drawn where it is locally, not where the last server
+ * update put it, so it moves with the camera instead of jittering against it.
+ */
+function objectsToFeatures(points, mainPlayerId, localCraft) {
   return points.map(obj => {
-    const props = obj.getState();
+    let props = obj.getState();
+    if (localCraft && obj.id === mainPlayerId) {
+      const [x, y] = localCraft.getPos();
+      props = { ...props, pos: { x, y }, bearing: localCraft.getBearing() ?? props.bearing };
+    }
     const baseFeature = {
       type: 'Feature',
       properties: {

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Flock · Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Serif:ital@0;1&family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@400&family=Noto+Sans+TC:wght@400;500;600&family=Noto+Serif+TC:wght@400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #111111;
+      --color-ink:     #eeeeee;
+      --color-muted:   #aaaaaa;
+      --color-accent:  #4fc3f7;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', 'Noto Serif KR', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · The Flock</p>
+    <h1>How a round flows from browser to server</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="flock-architecture-title flock-architecture-desc">
+        <title id="flock-architecture-title">The Flock architecture</title>
+        <desc id="flock-architecture-desc">The browser sends player state and shots to the world store on the network server, which spawns enemies on a ring around the start, simulates only those near players, and sends back only what changed. The browser draws it on the map and in the sound, performance box and radar.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#aaaaaa"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4fc3f7"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9db4d6"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#111111"/>
+
+        <rect x="216" y="72" width="264" height="352" rx="8" fill="rgba(238,238,238,0.03)" stroke="rgba(238,238,238,0.10)" stroke-width="0.8"/>
+        <rect x="322" y="76" width="52" height="12" rx="2" fill="#111111"/>
+        <text x="348" y="85" fill="#8c8c8c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">BROWSER</text>
+        <rect x="648" y="72" width="272" height="352" rx="8" fill="rgba(238,238,238,0.03)" stroke="rgba(238,238,238,0.10)" stroke-width="0.8"/>
+        <rect x="736" y="76" width="96" height="12" rx="2" fill="#111111"/>
+        <text x="784" y="85" fill="#8c8c8c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">NETWORK SERVER</text>
+        <!-- arrows -->
+        <line x1="348" y1="168" x2="348" y2="224" stroke="#aaaaaa" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="348" y1="288" x2="348" y2="344" stroke="#aaaaaa" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="176" y1="256" x2="240" y2="256" stroke="#9db4d6" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <line x1="456" y1="268" x2="672" y2="268" stroke="#9db4d6" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <path d="M 672,136 H 572 Q 564,136 564,144 V 236 Q 564,244 556,244 H 456" fill="none" stroke="#4fc3f7" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <line x1="784" y1="224" x2="784" y2="168" stroke="#aaaaaa" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="748" y1="288" x2="748" y2="344" stroke="#aaaaaa" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="820" y1="344" x2="820" y2="288" stroke="#aaaaaa" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <!-- arrow labels -->
+        <rect x="358" y="190" width="36" height="12" rx="2" fill="#111111"/>
+        <text x="376" y="199" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CRAFT</text>
+        <rect x="358" y="310" width="44" height="12" rx="2" fill="#111111"/>
+        <text x="380" y="319" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EVENTS</text>
+        <rect x="190" y="234" width="36" height="12" rx="2" fill="#111111"/>
+        <text x="208" y="243" fill="#9db4d6" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TILES</text>
+        <rect x="522" y="276" width="84" height="12" rx="2" fill="#111111"/>
+        <text x="564" y="285" fill="#9db4d6" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STATE + SHOTS</text>
+        <rect x="584" y="116" width="76" height="12" rx="2" fill="#111111"/>
+        <text x="622" y="125" fill="#4fc3f7" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORLD DELTAS</text>
+        <rect x="796" y="190" width="52" height="12" rx="2" fill="#111111"/>
+        <text x="822" y="199" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VISIBLE</text>
+        <rect x="688" y="310" width="52" height="12" rx="2" fill="#111111"/>
+        <text x="714" y="319" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ACTIVE</text>
+        <rect x="830" y="310" width="60" height="12" rx="2" fill="#111111"/>
+        <text x="860" y="319" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RESULTS</text>
+        <!-- nodes -->
+        <rect x="40" y="224" width="136" height="64" rx="6" fill="#111111"/>
+        <rect x="40" y="224" width="136" height="64" rx="6" fill="rgba(238,238,238,0.03)" stroke="rgba(238,238,238,0.30)" stroke-width="1"/>
+        <rect x="48" y="232" width="40" height="12" rx="2" fill="transparent" stroke="rgba(238,238,238,0.22)" stroke-width="0.8"/>
+        <text x="68" y="241" fill="#8c8c8c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLOUD</text>
+        <text x="108" y="260" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Mapbox tiles</text>
+        <text x="108" y="276" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">api.mapbox.com</text>
+        <rect x="240" y="104" width="216" height="64" rx="6" fill="#111111"/>
+        <rect x="240" y="104" width="216" height="64" rx="6" fill="rgba(170,170,170,0.10)" stroke="#8c8c8c" stroke-width="1"/>
+        <rect x="248" y="112" width="28" height="12" rx="2" fill="transparent" stroke="rgba(140,140,140,0.50)" stroke-width="0.8"/>
+        <text x="262" y="121" fill="#8c8c8c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">UI</text>
+        <text x="348" y="140" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Craft picker</text>
+        <text x="348" y="156" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">craft-select.js</text>
+        <rect x="240" y="224" width="216" height="64" rx="6" fill="#111111"/>
+        <rect x="240" y="224" width="216" height="64" rx="6" fill="#1b1b1b" stroke="#eeeeee" stroke-width="1"/>
+        <rect x="248" y="232" width="32" height="12" rx="2" fill="transparent" stroke="rgba(238,238,238,0.40)" stroke-width="0.8"/>
+        <text x="264" y="241" fill="#eeeeee" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MAP</text>
+        <text x="348" y="260" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Game layer</text>
+        <text x="348" y="276" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Mapbox GL · keys · camera · shots</text>
+        <rect x="240" y="344" width="216" height="64" rx="6" fill="#111111"/>
+        <rect x="240" y="344" width="216" height="64" rx="6" fill="#1b1b1b" stroke="#eeeeee" stroke-width="1"/>
+        <rect x="248" y="352" width="40" height="12" rx="2" fill="transparent" stroke="rgba(238,238,238,0.40)" stroke-width="0.8"/>
+        <text x="268" y="361" fill="#eeeeee" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AUDIO</text>
+        <text x="348" y="380" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Sound &amp; HUD</text>
+        <text x="348" y="396" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">sounds · perf box · radar</text>
+        <rect x="672" y="104" width="224" height="64" rx="6" fill="#111111"/>
+        <rect x="672" y="104" width="224" height="64" rx="6" fill="#1b1b1b" stroke="#eeeeee" stroke-width="1"/>
+        <rect x="680" y="112" width="36" height="12" rx="2" fill="transparent" stroke="rgba(238,238,238,0.40)" stroke-width="0.8"/>
+        <text x="698" y="121" fill="#eeeeee" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WIRE</text>
+        <text x="784" y="140" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Update encoder</text>
+        <text x="784" y="156" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">wire.js · changes only</text>
+        <rect x="672" y="224" width="224" height="64" rx="6" fill="#111111"/>
+        <rect x="672" y="224" width="224" height="64" rx="6" fill="rgba(79,195,247,0.10)" stroke="#4fc3f7" stroke-width="1"/>
+        <rect x="680" y="232" width="40" height="12" rx="2" fill="transparent" stroke="rgba(79,195,247,0.50)" stroke-width="0.8"/>
+        <text x="700" y="241" fill="#4fc3f7" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="784" y="260" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">World store</text>
+        <text x="784" y="276" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">world.js · craft grid</text>
+        <rect x="672" y="344" width="224" height="64" rx="6" fill="#111111"/>
+        <rect x="672" y="344" width="224" height="64" rx="6" fill="#1b1b1b" stroke="#eeeeee" stroke-width="1"/>
+        <rect x="680" y="352" width="32" height="12" rx="2" fill="transparent" stroke="rgba(238,238,238,0.40)" stroke-width="0.8"/>
+        <text x="696" y="361" fill="#eeeeee" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SIM</text>
+        <text x="784" y="380" fill="#eeeeee" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Simulation</text>
+        <text x="784" y="396" fill="#aaaaaa" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">enemy ring · near players</text>
+        <!-- legend -->
+        <line x1="40" y1="488" x2="920" y2="488" stroke="rgba(238,238,238,0.10)" stroke-width="0.8"/>
+        <text x="40" y="504" fill="#aaaaaa" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="520" width="14" height="10" rx="2" fill="rgba(79,195,247,0.10)" stroke="#4fc3f7" stroke-width="1"/>
+        <text x="60" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Shared world state</text>
+        <rect x="200" y="520" width="14" height="10" rx="2" fill="#1b1b1b" stroke="#eeeeee" stroke-width="1"/>
+        <text x="220" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Module</text>
+        <rect x="288" y="520" width="14" height="10" rx="2" fill="rgba(170,170,170,0.10)" stroke="#8c8c8c" stroke-width="1"/>
+        <text x="308" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Player UI</text>
+        <rect x="380" y="520" width="14" height="10" rx="2" fill="rgba(238,238,238,0.03)" stroke="rgba(238,238,238,0.30)" stroke-width="1"/>
+        <text x="400" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Cloud service</text>
+        <line x1="500" y1="526" x2="528" y2="526" stroke="#9db4d6" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <text x="536" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Network call</text>
+        <line x1="640" y1="526" x2="668" y2="526" stroke="#4fc3f7" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <text x="676" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">World deltas</text>
+        <line x1="800" y1="526" x2="828" y2="526" stroke="#aaaaaa" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <text x="836" y="528" fill="#aaaaaa" font-size="8.5" font-family="'Geist', sans-serif">Results back</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

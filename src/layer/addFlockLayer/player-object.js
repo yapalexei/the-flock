@@ -32,12 +32,18 @@ const PlayerObject = (id, initState = {}, { friction = 0.05 } = {}) => {
   const addY = (vel) => {
     state.velocity.y += vel;
   };
-  const next = () => {
+  /**
+   * Advances the craft by `steps` physics ticks (1 = the original fixed tick; pass elapsed time
+   * divided by the tick length so movement is the same at any frame rate).
+   */
+  const next = (steps = 1) => {
     state.time = Date.now();
     state.prevPos.x = state.pos.x;
     state.prevPos.y = state.pos.y;
-    state.pos.x += state.velocity.x;
-    state.pos.y += state.velocity.y;
+    state.pos.x += state.velocity.x * steps;
+    state.pos.y += state.velocity.y * steps;
+    // Friction compounds per tick, so over `steps` ticks the velocity keeps (1 - FRICTION) ^ steps of itself.
+    const keep = Math.pow(1 - FRICTION, steps);
 
     // In other parts of the world the Y axis is backwards (NYC). Not sure why.
     state.bearing = state.prevPos ? -bearing(state.prevPos.x, state.prevPos.y, state.pos.x, state.pos.y) + 90 : null;
@@ -45,13 +51,13 @@ const PlayerObject = (id, initState = {}, { friction = 0.05 } = {}) => {
       state.velocity.x > 0 && state.velocity.x < PRECISION
       || state.velocity.x < 0 && state.velocity.x > -PRECISION
     ) state.velocity.x = 0;
-    else state.velocity.x = state.velocity.x - (state.velocity.x * FRICTION);
+    else state.velocity.x = state.velocity.x * keep;
 
     if (
       state.velocity.y > 0 && state.velocity.y < PRECISION
       || state.velocity.y < 0 && state.velocity.y > -PRECISION
     ) state.velocity.y = 0;
-    else state.velocity.y = state.velocity.y - (state.velocity.y * FRICTION);
+    else state.velocity.y = state.velocity.y * keep;
   };
   const getPos = () => {
     const pos = [state.pos.x, state.pos.y];

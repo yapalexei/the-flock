@@ -68,7 +68,7 @@ function Movement({
 
     state.animator = state.animator || new Animator({
       fps: fps,
-      callback: () => {
+      callback: (_, elapsedMs) => {
         if (
           states[KEY.UP] ||
           states[KEY.RIGHT] ||
@@ -90,7 +90,7 @@ function Movement({
             g: states[KEY.g] || 0,
             o: states[KEY.o] || 0,
             d: states[KEY.d] || 0,
-          });
+          }, elapsedMs);
         }
       },
     });
